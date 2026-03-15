@@ -1,0 +1,6 @@
+Firebase Realtime Database Setup
+----------------------------------
+1. Create a free Firebase project at https://console.firebase.google.com
+2. Add a Realtime Database
+3. Set rules to public read/write (fine for a private two-person project)
+4. Paste in the config keys — the rest will be wired up in the code
