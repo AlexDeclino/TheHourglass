@@ -27,33 +27,81 @@
       border-bottom: 1px solid #2e2829;
       padding: 0 2em;
       z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
+    /* Single entry viewer */
     .content-area {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
       width: 100%;
       max-width: 680px;
-      overflow-y: scroll;
-      scroll-snap-type: y mandatory;
-      scrollbar-width: none;
+      overflow: hidden;
     }
 
-    .content-area::-webkit-scrollbar { display: none; }
-
-    #entries p {
-      scroll-snap-align: start;
-      scroll-snap-stop: always;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start;
+    #entry-display {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
       padding: 2em 2em 0;
-      margin: 0;
       line-height: 24.1px;
       white-space: pre-wrap;
       text-indent: 0;
+      scrollbar-width: none;
     }
+
+    #entry-display::-webkit-scrollbar { display: none; }
+
+    /* Nav arrows */
+    .nav-arrows {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1em;
+      padding: 0.4em 0;
+      background: #fff;
+      z-index: 9;
+    }
+
+    .nav-arrows button {
+      background: none;
+      border: none;
+      font-size: 16px;
+      padding: 0.2em 0.6em;
+      cursor: pointer;
+      color: #2e2829;
+    }
+
+    .nav-arrows button:hover { color: #000; }
+    .nav-arrows button:disabled { opacity: 0.2; cursor: default; }
+
+    @keyframes slide-from-below {
+      from { transform: translateY(40px); opacity: 0; }
+      to   { transform: translateY(0);   opacity: 1; }
+    }
+    @keyframes slide-from-above {
+      from { transform: translateY(-40px); opacity: 0; }
+      to   { transform: translateY(0);     opacity: 1; }
+    }
+    .animate-from-below { animation: slide-from-below 0.25s ease-out; }
+    .animate-from-above { animation: slide-from-above 0.25s ease-out; }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      20%     { transform: translateX(-5px); }
+      40%     { transform: translateX(5px); }
+      60%     { transform: translateX(-5px); }
+      80%     { transform: translateX(5px); }
+    }
+    .shake { animation: shake 0.3s ease-out; }
 
     .input-section {
       position: fixed;
@@ -77,7 +125,6 @@
       border: 1px solid #ccc;
       padding: 0.75em 1em;
       resize: vertical;
-      box-sizing: border-box;
       line-height: 24.1px;
       outline: none;
     }
@@ -122,8 +169,14 @@
   </div>
 
   <div id="flash"></div>
+
   <div class="content-area" id="content-area">
-    <div id="entries"></div>
+    <div id="entry-display"></div>
+  </div>
+
+  <div class="nav-arrows" id="nav-arrows">
+    <button id="btn-prev" onclick="navigate(-1)">▲</button>
+    <button id="btn-next" onclick="navigate(1)">▼</button>
   </div>
 
   <div class="input-section" id="input-section">
@@ -131,6 +184,9 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75em;">
       <button onclick="wipeEntries()" style="color:#999; border-color:#ccc;">Wipe all</button>
       <div style="display:flex; gap:0.5em; align-items:center;">
+        <select id="place-select" style="font-family:'Times New Roman',serif; font-size:14px; color:#2e2829; border:1px solid #2e2829; padding:0.4em 0.5em; background:#fff; cursor:pointer; outline:none;">
+          <option value="random">random</option>
+        </select>
         <select id="username-select" style="font-family:'Times New Roman',serif; font-size:14px; color:#2e2829; border:1px solid #2e2829; padding:0.4em 0.5em; background:#fff; cursor:pointer; outline:none;">
           <option value="random">random</option>
         </select>
@@ -156,22 +212,55 @@
     const db = getDatabase(app);
     const entriesRef = ref(db, 'entries');
 
+    let allEntries = [];
+    let currentIndex = 0;
+
     // Layout
     function adjustLayout() {
+      const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       const headerHeight = document.getElementById('header').offsetHeight;
       const inputHeight = document.getElementById('input-section').offsetHeight;
-      const contentHeight = window.innerHeight - headerHeight - inputHeight;
+      const navHeight = document.getElementById('nav-arrows').offsetHeight;
+      const contentHeight = vh - headerHeight - inputHeight - navHeight;
       const area = document.getElementById('content-area');
       area.style.top = headerHeight + 'px';
       area.style.height = contentHeight + 'px';
-      document.querySelectorAll('#entries p').forEach(p => {
-        p.style.height = contentHeight + 'px';
-      });
+      const display = document.getElementById('entry-display');
+      display.style.height = contentHeight + 'px';
+      const arrows = document.getElementById('nav-arrows');
+      arrows.style.top = (headerHeight + contentHeight) + 'px';
     }
 
     adjustLayout();
     window.addEventListener('resize', adjustLayout);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', adjustLayout);
     new ResizeObserver(adjustLayout).observe(document.getElementById('input-section'));
+
+    // Places
+    var places = [];
+    fetch('places.txt').then(r => r.text()).then(t => {
+      places = t.split('\n').map(l => {
+        const parts = l.split('|');
+        return parts.length >= 2 ? { mountain: parts[0].trim(), range: parts[1].trim() } : null;
+      }).filter(Boolean);
+      const sel = document.getElementById('place-select');
+      places.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.mountain + ' (' + p.range + ')';
+        opt.textContent = p.mountain;
+        sel.appendChild(opt);
+      });
+    });
+
+    function getSelectedPlace() {
+      const sel = document.getElementById('place-select');
+      if (sel.value === 'random') {
+        if (!places.length) return '';
+        const p = places[Math.floor(Math.random() * places.length)];
+        return p.mountain + ' (' + p.range + ')';
+      }
+      return sel.value;
+    }
 
     // Usernames
     var usernames = [];
@@ -248,67 +337,71 @@
     // Stamp
     function makeStamp() {
       const now = new Date();
-      const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-      const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
-      function ordinal(n) {
-        const s = ['th','st','nd','rd'], v = n % 100;
-        return n + (s[(v - 20) % 10] || s[v] || s[0]);
-      }
       const utc1 = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds() + 3600;
       const beats = ((utc1 % 86400) / 86.4).toFixed(2);
-      const year = now.getUTCFullYear() + 5;
       const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
       const dd = String(now.getUTCDate()).padStart(2, '0');
       return {
-        dateLine: mm + '/' + dd + '/' + year + ' @ ' + String(Math.floor(beats)).padStart(3, '0') + '.' + beats.split('.')[1],
+        dateLine: mm + '/' + dd + '  @' + String(Math.floor(beats)).padStart(3, '0') + '.' + beats.split('.')[1] + ' | ' + getSelectedPlace(),
         userLine: 'by ' + getSelectedUsername()
       };
     }
 
     const stampStyle = 'color:#fff; padding:0 0.3em; font-size:0.85em; white-space:nowrap; display:inline-block;';
 
-    function createEntryEl(data) {
-      const contentHeight = parseInt(document.getElementById('content-area').style.height) || window.innerHeight;
-      const p = document.createElement('p');
-      p.style.height = contentHeight + 'px';
+    function renderEntry(data, dir) {
+      const display = document.getElementById('entry-display');
+      display.scrollTop = 0;
+      display.innerHTML = '';
+      display.classList.remove('animate-from-below', 'animate-from-above');
+      if (dir > 0) {
+        display.classList.add('animate-from-below');
+      } else if (dir < 0) {
+        display.classList.add('animate-from-above');
+      }
+      void display.offsetHeight;
+      if (!data) return;
       const dateSp = document.createElement('span');
       dateSp.textContent = data.dateLine;
       dateSp.style.cssText = stampStyle + ' background:#D9D9D9; color:#2e2829; margin-bottom:0.1em;';
       const userSp = document.createElement('span');
       userSp.textContent = data.userLine;
       userSp.style.cssText = stampStyle + ' background:#838383; margin-bottom:0.25em;';
-      p.appendChild(dateSp);
-      p.appendChild(document.createTextNode('\n'));
-      p.appendChild(userSp);
-      p.appendChild(document.createTextNode('\n' + data.text));
-      return p;
+      display.appendChild(dateSp);
+      display.appendChild(document.createTextNode('\n'));
+      display.appendChild(userSp);
+      display.appendChild(document.createTextNode('\n' + data.text));
     }
 
-    function scrollToLast() {
-      const area = document.getElementById('content-area');
-      const all = document.querySelectorAll('#entries p');
-      if (all.length) area.scrollTop = (all.length - 1) * area.offsetHeight;
+    function updateNav() {
+      document.getElementById('btn-prev').disabled = currentIndex <= 0;
+      document.getElementById('btn-next').disabled = currentIndex >= allEntries.length - 1;
     }
 
-    // Load & sync entries from Firebase
+    window.navigate = function(dir) {
+      const next = Math.max(0, Math.min(allEntries.length - 1, currentIndex + dir));
+      if (next === currentIndex) return;
+      currentIndex = next;
+      renderEntry(allEntries[currentIndex], dir);
+      updateNav();
+    };
+
+    // Load & sync from Firebase
     let initialLoad = true;
     onValue(entriesRef, snapshot => {
-      const entries = document.getElementById('entries');
-      entries.innerHTML = '';
       const val = snapshot.val();
-      if (val) {
-        Object.values(val).forEach(data => {
-          entries.appendChild(createEntryEl(data));
-        });
-      }
-      adjustLayout();
-      scrollToLast();
-      if (!initialLoad) {
+      allEntries = val ? Object.values(val) : [];
+      if (initialLoad) {
+        currentIndex = allEntries.length - 1;
+      } else {
+        currentIndex = allEntries.length - 1;
         const flash = document.getElementById('flash');
         flash.style.animation = 'none';
         flash.offsetHeight;
         flash.style.animation = 'flash-twice 0.6s ease-out';
       }
+      renderEntry(allEntries[currentIndex] || null);
+      updateNav();
       initialLoad = false;
     });
 
@@ -324,6 +417,22 @@
 
     document.getElementById('entry-input').addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) window.submitEntry();
+    });
+
+    document.getElementById('entry-input').addEventListener('input', () => {
+      const ta = document.getElementById('entry-input');
+      if (ta.value.length > 666) {
+        ta.value = ta.value.slice(0, 666);
+        ta.classList.remove('shake');
+        void ta.offsetHeight;
+        ta.classList.add('shake');
+        const flash = document.getElementById('flash');
+        flash.style.background = 'red';
+        flash.style.animation = 'none';
+        void flash.offsetHeight;
+        flash.style.animation = 'flash-twice 0.4s ease-out';
+        flash.addEventListener('animationend', () => { flash.style.background = 'yellow'; }, { once: true });
+      }
     });
 
     // Wipe
