@@ -197,8 +197,11 @@
     }, 50);
 
     // Word animation
-    const words = ['GAMBLING', 'CAPITAL', 'GAINZ', 'FLOW', 'PLEASURE'];
+    let words = ['GAMBLING'];
     let wordIndex = 0;
+    fetch('words.txt').then(r => r.text()).then(t => {
+      words = t.split('\n').map(w => w.trim()).filter(Boolean);
+    });
     const letterDelay = 80;
     function animateWord() {
       const el = document.getElementById('header-word');
@@ -299,6 +302,8 @@
 
     // Wipe
     window.wipeEntries = function() {
+      const pwd = prompt('Password:');
+      if (pwd !== '666') return;
       if (!confirm('Wipe all entries?')) return;
       remove(entriesRef);
     };
