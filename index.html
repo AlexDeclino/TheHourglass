@@ -291,6 +291,7 @@
     }
 
     // Load & sync entries from Firebase
+    let initialLoad = true;
     onValue(entriesRef, snapshot => {
       const entries = document.getElementById('entries');
       entries.innerHTML = '';
@@ -302,6 +303,13 @@
       }
       adjustLayout();
       scrollToLast();
+      if (!initialLoad) {
+        const flash = document.getElementById('flash');
+        flash.style.animation = 'none';
+        flash.offsetHeight;
+        flash.style.animation = 'flash-twice 0.6s ease-out';
+      }
+      initialLoad = false;
     });
 
     // Submit
@@ -312,10 +320,6 @@
       const stamp = makeStamp();
       push(entriesRef, { text, dateLine: stamp.dateLine, userLine: stamp.userLine });
       input.value = '';
-      const flash = document.getElementById('flash');
-      flash.style.animation = 'none';
-      flash.offsetHeight; // reflow
-      flash.style.animation = 'flash-twice 0.6s ease-out';
     };
 
     document.getElementById('entry-input').addEventListener('keydown', e => {
